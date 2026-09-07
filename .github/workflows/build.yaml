@@ -29,7 +29,7 @@ jobs:
     steps:
       # Actions are referenced by major tag here and pinned to SHAs by
       # Dependabot's github-actions ecosystem on its first run.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: docker/setup-buildx-action@v3
 
