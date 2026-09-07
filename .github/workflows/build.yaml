@@ -31,7 +31,7 @@ jobs:
       # Dependabot's github-actions ecosystem on its first run.
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
         # Only on main. A PR from a fork must be able to BUILD (which is where
