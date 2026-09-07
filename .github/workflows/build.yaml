@@ -37,7 +37,7 @@ jobs:
         # Only on main. A PR from a fork must be able to BUILD (which is where
         # the branding assertions run) without holding push credentials.
         if: github.event_name == 'push'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
