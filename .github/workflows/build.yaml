@@ -45,7 +45,7 @@ jobs:
 
       - name: Build
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           # The Dockerfile's RUN step asserts the branding actually applied. If
