@@ -1,0 +1,43 @@
+# Watches the upstream Wanderer image this repo is built FROM.
+#
+# THE POINT. This repo exists to layer branding onto someone else's image. That
+# means the single most important thing to know is "upstream shipped a new
+# version" — and nothing was telling us. compose tracked :latest, which is the
+# other failure: it upgrades silently, whenever a container happens to restart,
+# with no PR, no diff and no record of what changed.
+#
+# `FROM flomp/wanderer-web:v0.20.0@sha256:...` gives Dependabot a version to
+# compare. When v0.21.0 lands it opens a PR bumping both the tag and the digest,
+# CI rebuilds, and the build's own assertions decide whether the branding still
+# applies to the new markup. An upstream change that breaks the patch fails
+# there — in a PR — instead of at 3am on a restart.
+version: 2
+updates:
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Halifax"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Halifax"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"

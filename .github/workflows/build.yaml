@@ -1,0 +1,68 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Dependabot bumps the base image in a PR; this builds it so the branding
+  # assertions decide whether the new upstream markup still patches cleanly.
+  workflow_dispatch:
+
+concurrency:
+  # Keyed by ref. A repo-wide constant group makes concurrent PRs cancel each
+  # other's builds, and a cancelled run reads as a failure — see the bug filed
+  # against bindy's docs workflow for what that looks like in practice.
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      # Actions are referenced by major tag here and pinned to SHAs by
+      # Dependabot's github-actions ecosystem on its first run.
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        # Only on main. A PR from a fork must be able to BUILD (which is where
+        # the branding assertions run) without holding push credentials.
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # The Dockerfile's RUN step asserts the branding actually applied. If
+          # upstream changed their markup, this step fails HERE — in a PR — and
+          # not silently at runtime with a healthy pod serving an unbranded site.
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
+          provenance: true
+          sbom: true
+
+      - name: Report the digest to deploy
+        if: github.event_name == 'push'
+        run: |
+          echo "### Deploy this digest" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "image: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "Update apps/wanderer/deployment-web.yaml in substrate_config." >> "$GITHUB_STEP_SUMMARY"
