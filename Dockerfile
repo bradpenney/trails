@@ -21,7 +21,7 @@
 # compose ran this image UNTAGGED, i.e. :latest, so the running version could
 # change under you at any restart. It happened to be v0.20.0 since 2026-07-07.
 # That is now stated rather than inherited.
-FROM flomp/wanderer-web:v0.20.0@sha256:d76177573caab135e8167179c9954168b5c582a48cbef0fcb7e1571af0c84d98
+FROM flomp/wanderer-web:v0.21.2@sha256:849f63732d3e751f077c1567bda77aebc68c8b5691271cb418e10efbcf2f364f
 
 # The scripts expect this exact path — patch-branding.sh hardcodes
 # /wanderer-branding for about.md, diorama.{png,webp,avif} and three .js
