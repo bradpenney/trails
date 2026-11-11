@@ -4,8 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Dependabot bumps the base image in a PR; this builds it so the branding
-  # assertions decide whether the new upstream markup still patches cleanly.
+  # Dependabot bumps the base image in a PR; this builds it so verify-branding
+  # decides whether the new upstream bundle still patches cleanly.
   workflow_dispatch:
 
 concurrency:
@@ -18,51 +18,118 @@ concurrency:
 permissions:
   contents: read
 
+# Actions are pinned to full commit SHAs, with the release in a comment;
+# Dependabot's github-actions ecosystem bumps both together. A tag can be
+# moved by whoever controls the action's repository; a SHA cannot.
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: shellcheck
+        run: docker run --rm -v "$PWD:/mnt:ro" -w /mnt koalaman/shellcheck:v0.11.0 branding/patch-branding.sh test/smoke.sh
+      - name: hadolint
+        run: docker run --rm -i hadolint/hadolint:v2.14.0 < Dockerfile
+
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      # No dependencies to install: node's built-in test runner only.
+      - name: Tests, with coverage gate
+        run: npm run test:coverage
+
   build:
     name: Build and push
+    needs: [lint, test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+      # Keyless cosign signing: the signature is bound to this workflow's
+      # GitHub OIDC identity, so there is no signing key to store or leak.
       id-token: write
     steps:
-      # Actions are referenced by major tag here and pinned to SHAs by
-      # Dependabot's github-actions ecosystem on its first run.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build
+        # The Dockerfile runs verify-branding.js: if upstream changed their
+        # markup and any branding outcome is missing, this step fails HERE, in
+        # a PR, and not silently at runtime with a healthy pod serving an
+        # unbranded site.
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          tags: trails:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test
+        run: sh test/smoke.sh trails:ci
 
       - name: Log in to GHCR
-        # Only on main. A PR from a fork must be able to BUILD (which is where
-        # the branding assertions run) without holding push credentials.
+        # Only on main. A PR from a fork must be able to BUILD and TEST without
+        # holding push credentials.
         if: github.event_name == 'push'
-        uses: docker/login-action@v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build
-        id: build
-        uses: docker/build-push-action@v7
+      - name: Push
+        # Same inputs as Build, so every layer comes from the cache; this step
+        # adds the provenance and SBOM attestations and pushes.
+        if: github.event_name == 'push'
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          # The Dockerfile's RUN step asserts the branding actually applied. If
-          # upstream changed their markup, this step fails HERE — in a PR — and
-          # not silently at runtime with a healthy pod serving an unbranded site.
-          push: ${{ github.event_name == 'push' }}
+          push: true
           tags: |
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ github.sha }}
+          cache-from: type=gha
           provenance: true
           sbom: true
 
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        if: github.event_name == 'push'
+        with:
+          cosign-release: v3.1.4
+
+      - name: Sign the pushed digest
+        # Signs the DIGEST, never a tag: a tag can move after signing.
+        if: github.event_name == 'push'
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}@${{ steps.push.outputs.digest }}
+        run: cosign sign --yes "$IMAGE"
+
       - name: Report the digest to deploy
         if: github.event_name == 'push'
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}@${{ steps.push.outputs.digest }}
+          REPO: ${{ github.repository }}
         run: |
-          echo "### Deploy this digest" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo "image: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo "Update apps/wanderer/deployment-web.yaml in substrate_config." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Deploy this digest"
+            echo '```'
+            echo "image: $IMAGE"
+            echo '```'
+            echo "Update apps/wanderer/deployment-web.yaml in substrate_config."
+            echo
+            echo "Verify the signature before deploying:"
+            echo '```'
+            echo "cosign verify $IMAGE \\"
+            echo "  --certificate-identity-regexp '^https://github.com/$REPO/.github/workflows/build.yaml@refs/heads/main\$' \\"
+            echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

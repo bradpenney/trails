@@ -1,0 +1,14 @@
+{
+  "name": "trails",
+  "private": true,
+  "description": "Brad's Trails: build-time branding patches for upstream Wanderer, and their tests",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-lines=95 --test-coverage-branches=85 --test-coverage-functions=100 test/",
+    "test:smoke": "docker build -t trails:local . && sh test/smoke.sh trails:local"
+  }
+}

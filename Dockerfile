@@ -21,7 +21,7 @@
 # compose ran this image UNTAGGED, i.e. :latest, so the running version could
 # change under you at any restart. It happened to be v0.20.0 since 2026-07-07.
 # That is now stated rather than inherited.
-FROM flomp/wanderer-web:v0.20.0@sha256:d76177573caab135e8167179c9954168b5c582a48cbef0fcb7e1571af0c84d98
+FROM flomp/wanderer-web:v0.21.2@sha256:849f63732d3e751f077c1567bda77aebc68c8b5691271cb418e10efbcf2f364f
 
 # The scripts expect this exact path — patch-branding.sh hardcodes
 # /wanderer-branding for about.md, diorama.{png,webp,avif} and three .js
@@ -31,27 +31,19 @@ COPY branding /wanderer-branding
 # One layer: patch, verify, then remove the sources so the 4.3 MiB of build
 # input does not ship in the runtime image.
 #
-# The VERIFY step is the point of moving this to build time. Every patch in the
-# script is a best-effort text substitution that exits 0 when it matches
-# nothing. Asserting the result here means an upstream change breaks the build
-# instead of silently un-branding the site.
+# The VERIFY step is the point of building this image. Every patch is a text
+# substitution on upstream's minified bundle that exits 0 when it matches
+# nothing. verify-branding.js checks every intended OUTCOME (17 of them: titles,
+# hero, about page, CSS, dark mode, thumbnails, sort order, serving) and fails
+# the build if any one is missing, so an upstream change breaks a PR instead of
+# silently un-branding the site. It also checks every file stays readable by
+# uid 65532, which this root build must not break. (A `chmod -R` would have
+# guaranteed that at the cost of +59 MiB of copy-on-write; sed -i and cp
+# already produce 0644, and the check fails loudly if that ever changes.)
 RUN set -eu; \
     /wanderer-branding/patch-branding.sh; \
-    grep -rqF "Brad's Trails" /app/build \
-      || { echo "FATAL: branding text not found after patch — upstream markup changed"; exit 1; }; \
-    grep -rqF "Rocky Lake" /app/build \
-      || { echo "FATAL: hero alt text not applied — upstream markup changed"; exit 1; }; \
-    rm -rf /wanderer-branding; \
-    # The deployment runs as uid 65532 (PSS restricted) while this build runs
-    # as root, so every patched file must stay world-readable. VERIFY rather
-    # than `chmod -R`: a recursive chmod touches every file in /app/build,
-    # which copy-on-write duplicates the entire directory into this layer —
-    # measured at +59 MiB for no change, since the tools used here (sed -i, cp)
-    # already produce 0644. This check costs nothing and fails loudly if that
-    # ever stops being true.
-    ! find /app/build ! -perm -o=r -type f | grep -q . \
-      || { echo "FATAL: patched files are not world-readable; uid 65532 could not serve them"; \
-           find /app/build ! -perm -o=r -type f | head; exit 1; }
+    node /wanderer-branding/verify-branding.js /app/build /wanderer-branding; \
+    rm -rf /wanderer-branding
 
 # Declared so the image is honest about how it is meant to run. The Kubernetes
 # securityContext sets this too — belt and braces, and it makes `docker run` of
