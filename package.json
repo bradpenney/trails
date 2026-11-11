@@ -7,8 +7,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test test/",
-    "test:coverage": "node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-lines=95 --test-coverage-branches=85 --test-coverage-functions=100 test/",
+    "test": "node --test 'test/*.test.js'",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-lines=95 --test-coverage-branches=85 --test-coverage-functions=100 'test/*.test.js'",
     "test:smoke": "docker build -t trails:local . && sh test/smoke.sh trails:local"
   }
 }
